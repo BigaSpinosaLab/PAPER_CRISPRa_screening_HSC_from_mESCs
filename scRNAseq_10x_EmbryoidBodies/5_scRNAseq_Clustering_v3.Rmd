@@ -1,0 +1,423 @@
+---
+title: "scRNAseq data analysis (EBs 7g): Clustering"
+subtitle: 'Researcher: Luis García Palma'
+author: "Author: María Maqueda"
+date: "16th May 2024"
+bibliography: "/Users/mmaqueda/Documents/Projects/Luis_Galán/CRISPR_Screening/scRNAseq_EBs/aux_files/references_scRNAseq_Analysis.bib"
+output:
+  html_document:
+    df_print: paged
+    css: style.css
+    toc: yes
+    toc_depth: '3'
+    toc_float: yes
+    theme: cerulean
+    highlight: haddock
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+fontsize: 14pt
+---
+
+```{r packages, include=FALSE}
+# Included any additional libraries required i.e. openxlsx
+libraries <- c("knitr", "ggplot2", "data.table", "dplyr", "stringr", "ggpubr", "Seurat", "glmGamPoi", "clustree", "multtest","metap","ComplexHeatmap", "openxlsx", "RColorBrewer") 
+check.libraries <- is.element(libraries, installed.packages()[, 1])==FALSE
+libraries.to.install <- libraries[check.libraries]
+if (length(libraries.to.install!=0)) {
+  require(libraries.to.install)
+}
+
+success <- sapply(libraries,require, quietly = FALSE,  character.only = TRUE)
+if(length(success) != length(libraries)) {stop("A package failed to return a success in require() function.")}
+```
+
+```{r general, include=FALSE}
+# General settings
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, echo=FALSE, fig.pos="H")
+options(scipen=999)
+
+# Define colors for conditions: WT and 7g
+cond.colors <- c("WT" = "lightblue",
+                  "g7" = "indianred")
+```
+
+
+# Scope
+
+This document aims to perform clustering on scRNAseq data already passed QC. This analysis is first performed **without samples integration**. Obtained results will be used to assess if integration is required or not**.
+
+**SPOILER**: No samples integration is required since all of them perfectly overlap.
+
+It is out of the scope to annotate cell types in this dataset, however cluster markers are obtained for further consideration. 
+
+# Primary data
+
+A total of **six samples** were library-prepared and sequenced by NovoGene Co, Ltd. Libraries were prepared using **10x Single Cell 3'v3 kit**. Corresponding biological samples were delivered to IJC at the end of October'23 and sequencing data was received at the end of February'24. Samples are equally divided in two conditions, considering cells from **mouse embryoid bodies (mEBs 144h)** :
+
+-   in wild-type (**WT**) condition (3x) and,
+-   after activation of 7* specific genes (**7g**) (3x) identified by CRISPRa in an earlier project phase.
+
+*Genes related to HSC development fate.
+
+# Methods
+
+Following criteria is applied:
+
+- SCTransform-based normalization (v2) regressing out mitochondrial content. Rest of parameters by default.
+- Dimensionality reduction considering 35 PCs which corresponds to a total cumulative variance explained of 85%.
+- Clustering (Louvain algorithm) with resolutions explored: from 0.2 to 0.4 (less to more specific) 
+- `FindConservedMarkers` was used to identify differentially expressed genes among clusters. By default, the non-parametric Wilcoxon rank sum test is applied. Other default parameters were considered except for `logFC threshold` increased to 0.5 (default is 0.1) and `minimum pct` to 0.25 (default is 0.01) which refers to only test genes that are detected in this minimum fraction of cells (in either of the two populations under test). Only positive genes are considered.
+
+All previous steps are performed by means of `Seurat` R package [@SeuratV5] (v5.0.0) together with `glmGamPoi` R package [@glmGamPoi] (v.1.12.2).
+
+# Results
+
+```{r IMPORTANT}
+# To execute this markdown quickly, load an RDS object already normalized + PCA + UMAP + Clustering
+ebs_seu <- readRDS(file = "RDS/scRNAseq_EBs_FINAL.RDS")
+```
+
+```{r import Seurat object, eval=FALSE}
+ebs_seu <- readRDS(file = "RDS/scRNAseq_EBs_WT_7g_After_QC_Filt_woRibo.RDS")
+```
+
+As a reminder, the dataset to be analyzed contains `r nrow(ebs_seu)` features (genes) over `r ncol(ebs_seu)` cells distributed in 6 samples from two conditions. In this case, ribosomal genes were excluded from the dataset. Low quality cells were also discarded as a result of a previous QC.
+
+## Normalization and dimensionality reduction (PCA, UMAP)
+
+Normalization aims to remove technical factors such as the library size that may confound the real biological heterogeneity. In this case, during normalization, mitochondrial content is also removed as a  possible source of variation in our samples.
+
+```{r sctransform, eval=FALSE}
+# run sctransform
+ebs_seu <- SCTransform(ebs_seu, 
+                       vars.to.regress = "percent.mito", 
+                       verbose = FALSE)
+```
+
+Once data is normalized, next step is to proceed with dimensionality reduction, this is required for visualization purposes and ease clustering. Dimensionality reduction is completed using two methods: first PCA and secondly, UMAP, considering a specific number of PCs from PCA. 
+
+```{r, eval=FALSE}
+ebs_seu <- RunPCA(ebs_seu, verbose = FALSE)
+```
+
+In order to choose a proper number of PCs to be consider for downstream analysis, those genes defining PCs can be checked as following indicated for the first 10 PCs (limited to 10 genes):
+
+```{r PCA genes}
+print(ebs_seu[["pca"]], 
+      dims = 1:10, nfeatures = 10)
+
+# DimPlot(ebs_seu, reduction = "pca",
+#         group.by = "Group", cols = cond.colors)
+
+```
+
+Another useful plot is the *Elbow plot* which ranks PCs based on their percentage of variance explained by each one.
+
+```{r elbow}
+ElbowPlot(object = ebs_seu, ndims=50)
+
+pct <- ebs_seu[["pca"]]@stdev / sum(ebs_seu[["pca"]]@stdev) * 100
+# Calculate cumulative percents for each PC
+cumu <- cumsum(pct)
+# Determine which PC exhibits cumulative percent greater than 85%
+co1 <- which(cumu > 85 & pct < 5)[1]
+n_dim = co1
+```
+
+An *elbow* is observed (approx) between 25-35 PCs, suggesting that the majority of true signal is captured in those first PCs. On the other hand, to achieve a cumulative percentage of captured variation greater than 85%, `r co1` PCs are required. Based on this, a total of **`r co1`** are considered for running UMAP.
+
+```{r umap, eval=FALSE}
+ebs_seu <- Seurat::RunUMAP(ebs_seu, 
+                       dims = 1:n_dim,
+                       n.neighbors=30,  # Default value 30
+                       min.dist = 0.3) # Default value 0.3
+saveRDS(object =ebs_seu, file = "RDS/scRNAseq_EBs_Norm_DimRed.RDS")
+```
+
+The resulting UMAP layout distinguishing by samples condition is:
+
+```{r umap group}
+Seurat::DimPlot(ebs_seu, 
+                reduction =  "umap", 
+               group.by = "Group", alpha=0.5, 
+               cols = cond.colors,
+               pt.size = 0.2)
+```
+
+This representation shows a great overlapping between conditions, this can be interpreted as a good alignment among samples. Thus, it is concluded that there is **no need for samples integration**. If this plot is generated per sample, the same conclusion is kept:
+
+```{r umap sample}
+ebs_seu <- Seurat::SetIdent(ebs_seu, value = ebs_seu$Group)
+Seurat::DimPlot(ebs_seu, 
+                reduction =  "umap", 
+               split.by = "orig.ident", cols=cond.colors,
+               pt.size = 0.2, ncol=3)
+```
+
+It is recommended to visualize UMAP against other possible confounding variables *i.e.* mitochondrial content or number of genes detected per cell. This is shown in next figures:
+
+```{r umap conf}
+# Color the dots according to percent.mito, ribo, nCount and nFeature
+plots <- vector("list",length=4)
+plots[[1]] <- Seurat::FeaturePlot(ebs_seu, reduction = "umap",features = "percent.mito",pt.size = 0.1)
+plots[[2]] <- Seurat::FeaturePlot(ebs_seu, reduction = "umap",features = "percent.ribo",pt.size = 0.1)
+plots[[3]] <- Seurat::FeaturePlot(ebs_seu, reduction = "umap",features = "nCount_RNA",pt.size = 0.1)
+plots[[4]] <- Seurat::FeaturePlot(ebs_seu, reduction = "umap",features = "nFeature_RNA",pt.size = 0.1)
+plt <- patchwork::wrap_plots(plots, ncol=2)
+plt
+```
+
+Finally, cell phase can be inferred from a reference set of genes defined by [@Tirosh] and phase labels represented in UMAP, as shown in following figure:
+
+```{r cell phase, eval=FALSE}
+s.genes <- Seurat::cc.genes.updated.2019$s.genes
+g2m.genes <- Seurat::cc.genes.updated.2019$g2m.genes
+
+s.genes  <- sapply(s.genes, function(gene) paste(substr(gene, 1, 1),
+                                                 tolower(substr(gene, 2, nchar(gene))), 
+                                                 sep=""))
+g2m.genes  <- sapply(g2m.genes, function(gene) paste(substr(gene, 1, 1),
+                                                     tolower(substr(gene, 2, nchar(gene))), 
+                                                     sep=""))
+ebs_seu <- Seurat::CellCycleScoring(ebs_seu,
+                                s.features = s.genes,
+                                g2m.features = g2m.genes)
+```
+
+```{r umap cell phase}
+Seurat::DimPlot(ebs_seu,
+                     reduction = "umap",
+                     group.by= "Phase")
+```
+
+Since this dataset includes developing cells, it is not recommended to regress out this information.
+
+## Custering
+
+Different clustering resolutions are explored from lower (less specific cell type) to higher granularity (more specific cell type). 
+
+```{r clustering, eval=FALSE}
+#n_dim=co1 # The same as for dim reduction
+
+ebs_seu <- Seurat::FindNeighbors(ebs_seu, dims = 1:n_dim)
+ebs_seu <- Seurat::FindClusters(ebs_seu, resolution = seq(0.1, 0.8, by=0.1)) 
+```
+To view how clusters sub-divide as resolution increases, typically a *clustering tree*  is visualized. Following figure represents, at each row, one specific clustering resolution (from 0.1 to 0.8 included). As it is interpreted, first level of clustering (resolution 0.1) seems to be too general while above 0.4 resolution clusters are quite stable.
+
+```{r clusttree}
+clustree(ebs_seu@meta.data[,grep("SCT_snn_res", 
+                                 colnames(ebs_seu@meta.data))],
+                   prefix = "SCT_snn_res.")
+```
+
+Clusters can be represented over UMAP, following graphs show this layout for clustering resolutions 0.3 and 0.4 (which seem to show certain stability)
+
+```{r}
+Seurat::DimPlot(ebs_seu, group.by = "SCT_snn_res.0.3" , split.by = "Group", label=TRUE)
+```
+
+```{r}
+Seurat::DimPlot(ebs_seu, group.by = "SCT_snn_res.0.4" ,split.by = "Group", label=TRUE)
+```
+For now, a **clustering resolution of 0.4 is selected**, the main difference with previous resolution is regarding clusters 4 and 6. The distribution of cells among clusters and between group is:
+
+```{r}
+print(table(ebs_seu@meta.data$SCT_snn_res.0.4, ebs_seu$orig.ident))
+```
+
+In relative terms and represented in a barplot:
+
+```{r}
+ebs_seu <- Seurat::SetIdent(ebs_seu, value = ebs_seu$SCT_snn_res.0.4)
+pt <- table(Idents(ebs_seu), ebs_seu$orig.ident)
+pt <- as.data.frame(pt)
+pt$Var1 <- as.character(pt$Var1)
+
+ggplot(pt, aes(x = Var2, y = Freq, fill = Var1)) +
+  theme_bw(base_size = 15) +
+  geom_col(position = "fill", width = 0.5) +
+  xlab(" ") +
+  ylab("Proportion") +
+  theme(legend.title = element_blank(),
+    legend.text = element_text(size=10, face = "bold"),
+        axis.text.x=element_text(size=15, face = "bold"),
+        axis.text.y=element_text(size=15, face = "bold"),
+        axis.title = element_text(size=20,face = "bold")) 
+```
+
+## Representative genes per cluster
+
+In this section the marker genes per cluster are obtained. Conserved marker genes between WT and induced cells (g7) are identified. This information may be useful for helping in cell type annotation. Markers obtained per cluster are stored in an excel file.
+
+```{r function to get markers}
+get_conserved <- function(seurat_object, cluster, min_pct_Custom, logFC){
+  markers <- Seurat::FindConservedMarkers(seurat_object,  
+                                          assay = "SCT",
+                                          slot="data",
+                                          ident.1 = cluster,
+                                          ident.2=NULL,
+                                          grouping.var = "Group",
+                                          logfc.threshold = logFC, # Default threshold is 0.1
+                                          min.pct = min_pct_Custom,  # Default is 1%
+                                          only.pos = TRUE)  #FALSE by default: pos and neg markers
+  
+  # Remove last two columns: referring to pval
+  markers <- markers[,-c(ncol(markers)-1,ncol(markers))]
+  
+  # New column with gene name
+  markers$GENE <- rownames(markers)
+  
+  # Add two columns with the max adj pval and min log2FC between both conditions
+  markers$max.adj.pval <- apply(markers[,grep("p_val_adj", colnames(markers))], 1, max) # Worst adj pval val 
+  markers$min.log2FC <- apply(markers[,grep("avg_log2FC", colnames(markers))], 1, min) # Worst logFC val 
+  
+  # Reduce the list of markers to those where the percentage is at least min.pct1 for the cluster of interest (pct1)
+  markers <- markers %>% dplyr::filter(g7_pct.1 >min_pct_Custom & WT_pct.1 >min_pct_Custom)
+  
+  # Reduce the list of markers to those where the max adj pval < 0.05 (there should not be, just in case)
+  markers <- markers %>% dplyr::filter(max.adj.pval < 0.05)
+  
+  # Sort the list per min log2FC
+  markers <- markers[order(markers$min.log2FC, decreasing=TRUE),]
+  
+  # Reorder the columns
+  markers <- markers[,c(ncol(markers)-2, ncol(markers)-1,
+                        ncol(markers),1:(ncol(markers)-3))]
+  
+  # Return results
+  return(markers)
+}
+```
+
+```{r obtain markers, eval=FALSE}
+ebs_seu <- Seurat::SetIdent(ebs_seu, value = ebs_seu$SCT_snn_res.0.4)
+# Recorrected counts to aggregate the different SCT models
+ebs_seu <- PrepSCTFindMarkers(object = ebs_seu)
+
+conserved_markers <- lapply(levels(ebs_seu@active.ident), 
+                            function(cl) get_conserved(seurat_object = ebs_seu,
+                                                       cluster = cl, 
+                                                       min_pct_Custom = 0.25, logFC=0.25))
+
+names(conserved_markers) <- paste("Cluster", 
+                                  levels(ebs_seu@active.ident),
+                                  sep="_")
+
+hs <- createStyle(textDecoration = "BOLD", fontColour = "#FFFFFF", fontSize = 12, fontName = "Arial Narrow", fgFill = "orchid4")
+write.xlsx(x = conserved_markers, file = "PAPER_RELATED/tables/scRNAseq_EBs_Cluster_Conserved_Markers.xlsx",headerStyle = hs)
+
+#saveRDS(object = conserved_markers, file="results/scRNAseq_EBs_res0.4_ConservedMarkers_clusters.RDS")
+
+```
+
+Considering the top100 markers (sorted by their log2FC) per cluster, following matrix show the overlapping degreen among clusters. This is useful to assess if any cluster should be agregrated.
+
+```{r, eval=FALSE}
+prepare_cases <- function(genes_list,top=NULL)
+{
+  if(!is.null(top))
+  {
+    genes_list  <- lapply(genes_list, function(list) if(nrow(list)>top){list[1:top,]}else{list}) 
+  }
+  
+  names <- names(genes_list) 
+  markers <- lapply(genes_list,  function(list) list$GENE)
+  res <- unlist(sapply(names, function(cluster) rep(cluster, length(markers[[cluster]]))))
+  names(res) <- unlist(markers)
+  return(res)
+}
+
+top_markers <- prepare_cases(genes_list = conserved_markers,top=100)
+
+jaccard.matrix <- scclusteval::PairWiseJaccardSets(ident1 = top_markers, 
+                                                   ident2= top_markers)
+
+col_fun = circlize::colorRamp2(c(0, 1), c("white", "red"))
+ComplexHeatmap::Heatmap(jaccard.matrix, name = "Jaccard dist",
+                        cluster_rows = FALSE, cluster_columns = FALSE,
+                        col = col_fun,
+                        cell_fun = function(j, i, x, y, width, height, fill) {
+                          grid.text(sprintf("%.2f", jaccard.matrix[i, j]), x, y, gp = gpar(fontsize = 12))
+                        })
+
+```
+
+![](./PAPER_RELATED/figures/scRNAseq_EBs_Jaccard_mat_Cl_conserved_markers.png){width="600px",height=600}
+As indicated in previous matrix, some pairs of clusters share a notable number of marker genes:
+
+- **clusters 11 and 14 share most of their top markers (80%)**, these clusters may be be aggregated. This is to be decided after cell type annotation assessment.
+- **clusters 0 and 9 share almost have of their top markers (49%)**. Their aggregation also has to be evaluated after cell type annotation.
+- **clusters 1 and 12 share 34% of their top markers**. For now, these are to be kept separately.
+
+## Data imputation and smoothing with MAGIC
+
+MAGIC (Markov affinity-based graph imputation of cells) is a tool that allows scRNAseq data imputation [@MAGIC]. This tool is applied to SCTransform counts. Obtained matrix is further used for visualization of gene expression data (individual genes or signatures - through their mean). Tool allows the user to adjust the diffusion time *t* which controls the extents the filtering (biological signal vs noise). Authors state that values between 3 and 12 would be the ideal range for most of the datasets. In this case, the default value (t=3) is used which would be the minimum recommended (empyrically). As t increases, more diffusion is applied => we could be removing biological signal. So, this is a conservative decision which seems to be enough based on the smoothed expression values obtained.
+
+```{r, eval=FALSE}
+ebs_seu <- magic(data = ebs_seu, assay = "SCT")
+```
+
+# Annex: Kdr+ cells
+
+Cells positive for Kdr+ are selected for further pseudobulk analysis. Deeply looking into `Kdr` expression across clusters (considering imputed and smoothed expression values):
+
+```{r}
+# Define the assay (exprs matrix) you want to use
+matrix <- "MAGIC_SCT"
+#matrix <- "SCT"
+# Set previous assay in the data
+DefaultAssay(ebs_seu) <- matrix
+
+Seurat::FeaturePlot(object = ebs_seu, 
+                    feature="Kdr", 
+                    split.by = "Group")
+
+Seurat::VlnPlot(object = ebs_seu, 
+                    feature="Kdr", 
+                    split.by = "Group")
+```
+
+```{r}
+Seurat::VlnPlot(object = ebs_seu, 
+                    feature="Kdr", 
+                    split.by = "Group")
+```
+
+```{r Kdr subset, eval=FALSE}
+matrix <- "SCT"
+# Set previous assay in the data
+DefaultAssay(ebs_seu) <- matrix
+
+ebs_seu_kdr <- subset(x = ebs_seu, slot= "counts", subset = Kdr > 1)
+saveRDS(object = ebs_seu_kdr, file = "RDS/scRNAseq_EBs_SUBSET_KDRpos_FINAL.RDS")
+```
+
+```{r}
+ebs_seu_kdr <- readRDS(file = "RDS/scRNAseq_EBs_SUBSET_KDRpos_FINAL.RDS")
+```
+
+
+**Cells are subset in those cases where they have > 1 raw counts in Kdr gene** for further analysis.  This subset includes `r ncol(ebs_seu_kdr)` cells which (scaled) expression is limited to (in terms of clusters):
+
+```{r}
+matrix <- "MAGIC_SCT"
+# Set previous assay in the data
+DefaultAssay(ebs_seu_kdr) <- matrix
+
+Seurat::VlnPlot(object = ebs_seu_kdr, feature="Kdr")
+```
+
+The distribution of Kdr+ cells among samples is the following. This is useful to check that there is no bias among samples.
+
+```{r}
+table(ebs_seu_kdr$orig.ident)
+```
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
+
+# References
