@@ -27,4 +27,6 @@ Scripts required to reproduce the complete scRNAseq EBs dataset (3x SADEiGEN and
 
 Raw FASTQ files and CellRanger output are available through GEO. Additionally, an RDS file including a Seurat object is also available in the same accession number. This RDS file includes up to Script 6 execution.
 
+NOTE: Corresponding HTML reports generated from scripts 1, 2, 4 and 5 are also available in a subfolder.
+
 ### scRNAseq 10x Bone Marrow
