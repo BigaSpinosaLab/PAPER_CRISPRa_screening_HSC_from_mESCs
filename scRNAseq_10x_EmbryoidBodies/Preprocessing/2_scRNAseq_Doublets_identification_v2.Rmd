@@ -1,0 +1,259 @@
+---
+title: "scRNAseq data analysis (EBs 7g): Doublets identification"
+subtitle: 'Researcher: Luis García Palma'
+author: "Author: María Maqueda"
+date: "13th May 2024"
+bibliography: "/Users/mmaqueda/Documents/Projects/Luis_Galán/CRISPR_Screening/scRNAseq_EBs/aux_files/references_scRNAseq_Analysis.bib"
+output:
+  html_document:
+    df_print: paged
+    css: style.css
+    toc: yes
+    toc_depth: '3'
+    toc_float: yes
+    theme: cerulean
+    highlight: haddock
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+fontsize: 14pt
+---
+
+```{r packages, include=FALSE}
+# Included any additional libraries required i.e. openxlsx
+libraries <- c("knitr", "ggplot2", "data.table", "dplyr", "stringr", "ggpubr", "Seurat", "scDblFinder", "SingleCellExperiment", "ggvenn") 
+check.libraries <- is.element(libraries, installed.packages()[, 1])==FALSE
+libraries.to.install <- libraries[check.libraries]
+if (length(libraries.to.install!=0)) {
+  require(libraries.to.install)
+}
+
+success <- sapply(libraries,require, quietly = FALSE,  character.only = TRUE)
+if(length(success) != length(libraries)) {stop("A package failed to return a success in require() function.")}
+```
+
+```{r general, include=FALSE}
+# General settings
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, echo=FALSE, fig.pos="H")
+options(scipen=999)
+
+# Project path in IMIM cluster where CellRanger outputs is located
+cluster.path <- "/Volumes/cancer/CRISPR_screening_mESCs_ABigas/scRNAseq_EBs_7g_vs_WT/cellranger_out/"
+
+# Define colors for conditions: WT and 7g
+cond.colors <- c("WT" = "lightblue",
+                  "g7" = "indianred")
+```
+
+
+# Scope
+
+This document aims to conduct doublets (or multiplets) detection over scRNAseq data samples and filter them for downstream analysis. Doublet (multiplet) detection aims to remove multiple cells captured within the same droplet (heterotypic).
+
+
+# Primary data
+
+A total of **six samples** were library-prepared and sequenced by NovoGene Co, Ltd. Libraries were prepared using **10x Single Cell 3'v3 kit**. Corresponding biological samples were delivered to IJC at the end of October'23 and sequencing data was received at the end of February'24. Samples are equally divided in two conditions, considering cells from **mouse embryoid bodies (mEBs E6.5)** :
+
+-   in wild-type (**WT**) condition (3x) and,
+-   after activation of 7* specific genes (**7g**) (3x) identified by CRISPRa in an earlier project phase.
+
+*Genes related to HSC development fate.
+
+# Methods
+
+Doublets(/multiplets) were identified by means of `scDblFinder` R package [@scDblFinder] (v1.14.0). This tool aims to identify heterotypic doublets (doublets formed from different cell types or states). Input data should not contain empty droplets in place. Filtered matrices (`filtered_feature_bc_matrix`) obtained from CellRanger are used. Random and cluster-based approaches are used (implemented in the same package)*. Additionally, cluster-based approach is also used with the clusters identified by CellRanger software (graph-based approach). Those cells labelled as doublets by two out of the three approaches will be removed from the dataset during the following QC process.
+Doublets are separately for each sample. For more information about this package, check https://github.com/plger/scDblFinder. 
+
+# Results
+
+Doublets probability is directly proportional to the loaded number of cells on the 10x Chromium chip as indicated in following table. As a rule of thumb, it is expected to have 1% doublet rate per 1000 cells captures. Thus, for this dataset with, in average, 8k cells, it is expected to have `r 0.01*8*8000` doublets per sample.
+
+NOTE: The determining factor for doublet formation is the number of cells inserted to the machine, it could also be that less cells than expected are recovered.
+
+![](./aux_files/10x_Expected_Multiplets.png){width="400px"}
+
+```{r create sample info}
+# Define all directories where data is stored
+samples <- c("WT_s1", "WT_s2", "WT_s3", "g7_s1", "g7_s2", "g7_s3")
+
+# Define all directories
+datadirs <- sapply(samples, function(s) paste0(cluster.path, s, "/outs/filtered_feature_bc_matrix"))
+```
+
+Samples are classified as singlets or doublets as indicated in the table below. **Doublets percentage ranges between 8.2% and 10.5%** which is roughly the expected quantity (slightly higher for sample `WT_s2`) 
+
+```{r import data and detect doublets, eval=FALSE}
+
+# NOTE: Code is not evaluated because a previous execution was conducted and results were stored
+# 10X platform: sparse count matrix (a dot means a zero in the sparse matrix)
+
+sparse_matrix <- Seurat::Read10X(data.dir = datadirs)
+
+# Also, import the cluster identification obtained by CellRanger
+clusters_files <- sapply(samples, function(s) paste0(cluster.path, s, "/outs/analysis/clustering/gene_expression_graphclust/clusters.csv"))
+clusters_files <- lapply(clusters_files, function(f){
+  a <- read.csv(f)
+  a$Cluster <- as.factor(a$Cluster)
+  return(a)
+})
+
+
+# Doublet detection
+set.seed(123)
+sce = scDblFinder(SingleCellExperiment(list(counts=sparse_matrix)),
+                  samples = sapply(colnames(sparse_matrix), function(n){
+                    elements <- unlist(strsplit(n, split="_"))
+                    return(paste(elements[1:length(elements)-1], collapse="_"))
+                        }),
+                  #clusters=NULL) # For random artificial doublets
+                  #clusters=TRUE) # For fast clustering implemented in scDBlFinder (combination of kmeans and Louvain)
+                  clusters = c(clusters_files$WT_s1$Cluster,  # Considering (graph-based) clusters from CR
+                               clusters_files$WT_s2$Cluster,
+                               clusters_files$WT_s3$Cluster,
+                               clusters_files$g7_s1$Cluster,
+                               clusters_files$g7_s2$Cluster,
+                               clusters_files$g7_s3$Cluster)) 
+                  
+# Store results from scDblFinder into a df (RDS)
+scDblFinder.res <- sce@colData
+# saveRDS(object = scDblFinder.res, file = "RDS/scDblFinder_results_woClusters_allCell.RDS")
+# saveRDS(object = scDblFinder.res, file = "RDS/scDblFinder_results_wClusters_allCell.RDS")
+saveRDS(object = scDblFinder.res, file = "RDS/scDblFinder_results_wClustersCR_allCell.RDS")
+
+
+# Retrieve the classification into singlet or doublets
+dbl <- lapply(samples, function(info) as.vector(table(sce$scDblFinder.class[which(sce$scDblFinder.sample %in% info)])))
+names(dbl) <- samples
+ 
+dbl <- as.data.frame(do.call(rbind, dbl))
+colnames(dbl) <- c("Singlets", "Doublets")
+dbl$Doublets_Percentage <- paste0(round(dbl$Doublets*100/(dbl$Singlets + dbl$Doublets),digits=1),"%")
+
+# write.table(x = dbl, file="results/scRNAseq_EBs_g7_Doublets_identification_woClusters_Summary.txt",
+#              quote = FALSE, sep="\t", row.names = TRUE)
+
+# write.table(x = dbl, file="results/scRNAseq_EBs_g7_Doublets_identification_wClusters_Summary.txt",
+#              quote = FALSE, sep="\t", row.names = TRUE)
+
+write.table(x = dbl, file="results/scRNAseq_EBs_g7_Doublets_identification_wClusters_CR_Summary.txt",
+             quote = FALSE, sep="\t", row.names = TRUE)
+
+```
+
+
+## Comparison between random and cluster-based approaches
+
+Following tables show the number of doublets classified per sample when applying the random or cluster-based approach.
+
+ - Random-based approach
+ 
+```{r}
+dbl <- read.table(file = "results/scRNAseq_EBs_g7_Doublets_identification_woClusters_Summary.txt", header = TRUE)
+knitr::kable(dbl, caption="RANDOM-BASED FROM scDblFinder. Number of classifed cells into singlets or doublets. Doublets percentage calculated over the total number of cells per sample")
+```
+ 
+ 
+ - Cluster-based approach (implementation in `scDblFinder`)
+ 
+```{r}
+dbl <- read.table(file = "results/scRNAseq_EBs_g7_Doublets_identification_wClusters_Summary.txt", header = TRUE)
+knitr::kable(dbl, caption="CLUSTERS-BASED FROM scDblFinder. Number of classifed cells into singlets or doublets. Doublets percentage calculated over the total number of cells per sample")
+```
+
+ - Cluster-based approach (results from `CellRanger`)
+ 
+```{r}
+dbl <- read.table(file = "results/scRNAseq_EBs_g7_Doublets_identification_wClusters_CR_Summary.txt", header = TRUE)
+knitr::kable(dbl, caption="CLUSTERS-BASED FROM CELL RANGER. Number of classifed cells into singlets or doublets. Doublets percentage calculated over the total number of cells per sample")
+```
+
+Similar results are obtained. Cluster-based approaches are recommended for those datasets with a very clear structure whereas the random approach for more complex ones. For this dataset, it is expected to have a clear structure. 
+
+The overlapping in doublets labelling between both cases is:
+
+```{r, fig.cap="Overlap of doublets identification"}
+
+random <- as.data.frame(readRDS(file = "RDS/scDblFinder_results_woClusters_allCell.RDS"))
+random <- random[which(random$scDblFinder.class %in% "doublet"),c("scDblFinder.sample","scDblFinder.class")]
+colnames(random) <- c("Sample", "Class")
+
+cluster <- as.data.frame(readRDS(file = "RDS/scDblFinder_results_wClusters_allCell.RDS"))
+cluster <- cluster[which(cluster$scDblFinder.class %in% "doublet"),c("scDblFinder.sample","scDblFinder.class")]
+colnames(cluster) <- c("Sample", "Class")
+
+clusterCR <- as.data.frame(readRDS(file = "RDS/scDblFinder_results_wClustersCR_allCell.RDS"))
+clusterCR <- clusterCR[which(clusterCR$scDblFinder.class %in% "doublet"),c("scDblFinder.sample","scDblFinder.class")]
+colnames(clusterCR) <- c("Sample", "Class")
+
+
+overlap_doublets <- lapply(unique(samples), function(s) {
+  data <- list("Random" = rownames(random)[which(random$Sample %in% s)],
+               "Cluster" = rownames(cluster)[which(cluster$Sample %in% s)],
+               "ClusterCR" = rownames(clusterCR)[which(clusterCR$Sample %in% s)])
+  ggvenn(data,
+         show_percentage = FALSE, 
+         stroke_color = "white",
+        # auto_scale = TRUE, # Only applicable for two sets
+         set_name_size = 4)
+})
+
+# Plot all figures
+ggarrange(plotlist = overlap_doublets, nrow = 2, ncol = 3,labels = unique(samples))
+
+```
+
+Most of detected doublets are shared among the three methods. Let's combine results and proceed with the final labelling for removal (a cell is defined as a doublet if it has been detected as such in two out of the three methods).
+
+```{r combined results}
+random <- as.data.frame(readRDS(file = "RDS/scDblFinder_results_woClusters_allCell.RDS"))
+cluster <- as.data.frame(readRDS(file = "RDS/scDblFinder_results_wClusters_allCell.RDS"))
+clusterCR <- as.data.frame(readRDS(file = "RDS/scDblFinder_results_wClustersCR_allCell.RDS"))
+
+doublets_combined <- data.frame("Sample" = random$scDblFinder.sample,
+                                "Random" = random$scDblFinder.class,
+                                "Cluster" = cluster$scDblFinder.class, 
+                                "ClusterCR" = clusterCR$scDblFinder.class)
+rownames(doublets_combined) <- rownames(random)
+
+doublets_combined$hits <- apply(doublets_combined, 1, function(x) length(which(x=="doublet")))
+doublets_combined$Final <- ifelse(doublets_combined$hits >1, "doublet", "singlet")
+
+saveRDS(object = doublets_combined, file = "RDS/scDblFinder_results_FINAL.RDS")
+```
+
+
+# CONCLUSION
+
+Cells have been classified into singlets or doublets following three different approaches: (i) without considering any clustering information and considering cells clustering based on (ii) fast two-step clustering already (implemented in `scDblFinder` package) consisting of k-means + louvain clustering (graph-based)  and (iii) graph-based clustering (implemented in `Cell Ranger` software) consisting of a graph-based (louvain) clustering (operating in the PCA space).
+
+Different results are obtained from the three different approaches, **as a final conclusion: a cell is labelled as doublet if it has been classified as such by at least two out the three approaches**. Per sample, it means:
+
+- **g7_s1**: `r length(which(doublets_combined$Final[grep("g7_s1_", rownames(doublets_combined))] %in% "doublet"))` out of the initial `r nrow(doublets_combined[grep("g7_s1_", rownames(doublets_combined)),])` cells (`r round(length(which(doublets_combined$Final[grep("g7_s1_", rownames(doublets_combined))] %in% "doublet"))*100/nrow(doublets_combined[grep("g7_s1_", rownames(doublets_combined)),]), digits=1)` %).
+
+- **g7_s2**: `r length(which(doublets_combined$Final[grep("g7_s2_", rownames(doublets_combined))] %in% "doublet"))` out of the initial `r nrow(doublets_combined[grep("g7_s2_", rownames(doublets_combined)),])` cells (`r round(length(which(doublets_combined$Final[grep("g7_s2_", rownames(doublets_combined))] %in% "doublet"))*100/nrow(doublets_combined[grep("g7_s2_", rownames(doublets_combined)),]), digits=1)` %).
+
+- **g7_s3**: `r length(which(doublets_combined$Final[grep("g7_s3_", rownames(doublets_combined))] %in% "doublet"))` out of the initial `r nrow(doublets_combined[grep("g7_s3_", rownames(doublets_combined)),])` cells (`r round(length(which(doublets_combined$Final[grep("g7_s3_", rownames(doublets_combined))] %in% "doublet"))*100/nrow(doublets_combined[grep("g7_s3_", rownames(doublets_combined)),]), digits=1)` %).
+
+- **WT_s1**: `r length(which(doublets_combined$Final[grep("WT_s1_", rownames(doublets_combined))] %in% "doublet"))` out of the initial `r nrow(doublets_combined[grep("WT_s1_", rownames(doublets_combined)),])` cells (`r round(length(which(doublets_combined$Final[grep("WT_s1_", rownames(doublets_combined))] %in% "doublet"))*100/nrow(doublets_combined[grep("WT_s1_", rownames(doublets_combined)),]), digits=1)` %).
+
+- **WT_s2**: `r length(which(doublets_combined$Final[grep("WT_s2_", rownames(doublets_combined))] %in% "doublet"))` out of the initial `r nrow(doublets_combined[grep("WT_s2_", rownames(doublets_combined)),])` cells (`r round(length(which(doublets_combined$Final[grep("WT_s2_", rownames(doublets_combined))] %in% "doublet"))*100/nrow(doublets_combined[grep("WT_s2_", rownames(doublets_combined)),]), digits=1)` %).
+
+- **WT_s3**: `r length(which(doublets_combined$Final[grep("WT_s3_", rownames(doublets_combined))] %in% "doublet"))` out of the initial `r nrow(doublets_combined[grep("WT_s3_", rownames(doublets_combined)),])` cells (`r round(length(which(doublets_combined$Final[grep("WT_s3_", rownames(doublets_combined))] %in% "doublet"))*100/nrow(doublets_combined[grep("WT_s3_", rownames(doublets_combined)),]), digits=1)` %).
+
+**These cells are removed from the dataset during the QC process.**
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
+
+# References
