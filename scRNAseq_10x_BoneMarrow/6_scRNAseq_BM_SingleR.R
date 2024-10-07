@@ -11,7 +11,8 @@
 
 mca <- readRDS("/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/scRNAseq_CRISPR_Screening_BM_Mouse_Cell_Atlas.RDS")
 
-seu <- readRDS("/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/final/scRNAseq_CRISPR_Screening_BM_Annotated_Integrated_FINAL.RDS")
+# This RDS was generated from script 4 (final step from pre-processing)
+seu <- readRDS("/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/scRNAseq_CRISPR_Screening_BM_After_QC_and_dbl_removal_QC2_Only2Samples.RDS")
 
 ##### Create SingleCellExperiment #####
 
@@ -49,29 +50,16 @@ predictions_CD45_4_5 <- SingleR::SingleR(test=CD45_4_5, ref=mca_sce, labels=mca_
 predictions_CD45_BFP_4_5 <- SingleR::SingleR(test=CD45_BFP_4_5, ref=mca_sce, labels=mca_sce$cell.ident)
 
 CD45_4_5 <- BM.list[["CD45_4_5"]]
-CD45_4_5$cell.ident <- predictions_CD45_4_5$labels
+CD45_4_5$SingleR_cell.type <- predictions_CD45_4_5$labels
 
 CD45_BFP_4_5 <- BM.list[["CD45_BFP_4_5"]]
-CD45_BFP_4_5$cell.ident <- predictions_CD45_BFP_4_5$labels
+CD45_BFP_4_5$SingleR_cell.type <- predictions_CD45_BFP_4_5$labels
 
 
 seu <- merge(CD45_4_5, CD45_BFP_4_5, project = "Combined_BM_CRISPR_Screening")
 
-###### Reduced cell identity ######
-seu$red.cell.ident <- seu$cell.ident
-
-seu@meta.data <- seu@meta.data %>%
-  mutate(red.cell.ident = case_when(cell.ident == "Myeloid cell" ~ "Myeloid cell",
-                                    cell.ident == "Neutrophil_Mmp8 high" | cell.ident == "Neutrophil_Mpo high" | cell.ident == "Neutrophil_Ltf high" | 
-                                      cell.ident == "Neutrophil_Fcnb high" | cell.ident == "Neutrophil_Chil3 high" ~ "Neutrophil",
-                                    cell.ident ==  "Macrophage_Ms4a6c high" | cell.ident ==  "Macrophage_Fcna high" | cell.ident == "Macrophage_Ctss high" ~ "Macrophage",
-                                    cell.ident ==  "Basophil" ~ "Basophil",
-                                    cell.ident ==  "Plasmacytoid dendritic cell" ~ "Plasmacytoid dendritic cell",
-                                    cell.ident ==  "Erythroid cell" ~ "Erythroid cell",
-                                    cell.ident ==  "T cell_Ccl5 high" ~ "T cell_Ccl5 high",
-                                    cell.ident ==  "B cell" ~ "B cell",
-                                    cell.ident ==  "Pre B cell" ~ "Pre B cell",
-                                    cell.ident ==  "Hematopoietic stem and progenitor cell" ~ "Hematopoietic stem and progenitor cell"))
+# REMARK: These cell annotations will be further inspected (manual curation) after samples integration and clustering
+# identification is carried out
 
 
 ## Save RDS object
