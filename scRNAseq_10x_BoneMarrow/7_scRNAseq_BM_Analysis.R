@@ -8,11 +8,11 @@
 ##### Import libraries #####
 
 # Included any additional libraries required i.e. openxlsx
-libraries <- c("knitr", "ggplot2", "data.table", "dplyr", "stringr", "ggpubr", 
+libraries <- c("ggplot2", "data.table", "dplyr", "stringr", "ggpubr", 
                "Seurat", "glmGamPoi", "clustree", "multtest","metap", 
-               "ComplexHeatmap", "RColorBrewer","ggpubr", "openxlsx", 
-               "readxl", "ggvenn", "Rmagic", "monocle3", "SeuratWrappers", 
-               "patchwork", "gprofiler2") 
+               "RColorBrewer","ggpubr", "openxlsx", 
+               "readxl", "Rmagic", "SeuratWrappers", 
+               "patchwork") 
 check.libraries <- is.element(libraries, installed.packages()[, 1])==FALSE
 libraries.to.install <- libraries[check.libraries]
 if (length(libraries.to.install!=0)) {
@@ -24,7 +24,8 @@ if(length(success) != length(libraries)) {stop("A package failed to return a suc
 
 
 ##### Import Seurat Object #####
-seu <- readRDS(file = "/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/scRNAseq_CRISPR_Screening_BM_Annotated_Only2Samples.RDS")
+# REMARK: This Seurat object already contains an automated cell type labelling with SingleE
+seu <- readRDS(file ="/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/scRNAseq_CRISPR_Screening_BM_SingleR_Annotated.RDS")
 
 
 ##### Normalization, dimensionality reduction (PCA, UMAP) and clustering over WT sample #####
@@ -103,6 +104,8 @@ BM.combined.sct <- Seurat::SetIdent(BM.combined.sct, value = BM.combined.sct$int
 
 
 ##### Subclustering #####
+# Apply subclustering in those clusters where more cell type heterogeneity (based on automated labelling) has been detected
+# This subclustering will be useful for manual curation of cell types annotation
 
 BM.combined.sct <- Seurat::SetIdent(BM.combined.sct, value = BM.combined.sct$integrated_snn_res.0.4)
 
@@ -111,53 +114,21 @@ BM.combined.sct <- FindSubCluster(BM.combined.sct, 12, "integrated_snn", subclus
 BM.combined.sct <- FindSubCluster(BM.combined.sct, 13, "integrated_snn", subcluster.name = "integrated_subclust13_snn_res.0.4",  resolution = 1,   algorithm = 1)
 BM.combined.sct <- FindSubCluster(BM.combined.sct, 15, "integrated_snn", subcluster.name = "integrated_subclust15_snn_res.0.4",  resolution = 0.1, algorithm = 1)
 
-
 ##### Data Imputation (MAGIC) #####
-
+## Smoothing and imputation is applied over normalized data - not integrated
 BM.combined.sct <- magic(BM.combined.sct, assay = "SCT")
-
-
-##### Renaming Clusters #####
-
-BM.combined.sct$curated.cell.ident <- BM.combined.sct$cell.ident
-BM.combined.sct$curated.cell.ident[BM.combined.sct$integrated_snn_res.0.4 == 9] <- "Neutrophil progenitor"
-BM.combined.sct$curated.cell.ident[BM.combined.sct$integrated_subclust11_snn_res.0.4 == "11_6"] <- "Basophil progenitor"
-BM.combined.sct$curated.cell.ident[BM.combined.sct$integrated_snn_res.0.4 == 14] <- "Innate lymphoid cell"
-
-
-##### General.curated.cell.ident #####
-
-BM.combined.sct$general.curated.cell.ident <- BM.combined.sct$curated.cell.ident
-
-BM.combined.sct@meta.data <- BM.combined.sct@meta.data %>%
-  mutate(general.curated.cell.ident = case_when(curated.cell.ident == "Myeloid cell" | curated.cell.ident == "Plasmacytoid dendritic cell" ~ "Myeloid cell",
-                                                curated.cell.ident == "Neutrophil_Mmp8 high" | curated.cell.ident == "Neutrophil_Mpo high" | curated.cell.ident == "Neutrophil_Ltf high" | 
-                                                  curated.cell.ident == "Neutrophil_Fcnb high" | curated.cell.ident == "Neutrophil_Chil3 high" | curated.cell.ident == "Neutrophil progenitor" ~ "Neutrophil",
-                                                curated.cell.ident ==  "Macrophage_Ms4a6c high" | curated.cell.ident ==  "Macrophage_Fcna high" | curated.cell.ident == "Macrophage_Ctss high" ~ "Macrophage",
-                                                curated.cell.ident ==  "Basophil" | curated.cell.ident ==  "Basophil progenitor" ~ "Basophil",
-                                                curated.cell.ident ==  "Erythroid cell" ~ "Erythroid cell",
-                                                curated.cell.ident ==  "Innate lymphoid cell" ~ "ILC",
-                                                curated.cell.ident ==  "T cell_Ccl5 high" ~ "T cell",
-                                                curated.cell.ident ==  "B cell" | curated.cell.ident ==  "Pre B cell"  ~ "B cell",
-                                                curated.cell.ident ==  "Hematopoietic stem and progenitor cell" | curated.cell.ident ==  "Hematopoietic stem cell" ~ "HSPC"))
-
 
 ##### Combined subclustering annotation #####
 
+# Each subcluster is found in a different column, so we create a new one to store all subclusters
 # We create a dummy variable to store metadata from the Seurat object.
 meta <- BM.combined.sct@meta.data
 
-# Each subcluster is found in a different column, so we create a new one to store all subclusters
 meta$subcluster.integrated_snn_res.0.4 <- as.character(meta$integrated_snn_res.0.4)
-
 meta$subcluster.integrated_snn_res.0.4 <- ifelse((meta$integrated_snn_res.0.4 == "11"), as.character(meta$integrated_subclust11_snn_res.0.4), as.character(meta$subcluster.integrated_snn_res.0.4))
-
 meta$subcluster.integrated_snn_res.0.4 <- ifelse((meta$integrated_snn_res.0.4 == "12"), as.character(meta$integrated_subclust12_snn_res.0.4), as.character(meta$subcluster.integrated_snn_res.0.4))
-
 meta$subcluster.integrated_snn_res.0.4 <- ifelse((meta$integrated_snn_res.0.4 == "13"), as.character(meta$integrated_subclust13_snn_res.0.4), as.character(meta$subcluster.integrated_snn_res.0.4))
-
 meta$subcluster.integrated_snn_res.0.4 <- ifelse((meta$integrated_snn_res.0.4 == "15"), as.character(meta$integrated_subclust15_snn_res.0.4), as.character(meta$subcluster.integrated_snn_res.0.4))
-
 meta <- meta[,c(1:9, 15, 10)]
 
 BM.combined.sct@meta.data <- meta
@@ -165,24 +136,17 @@ BM.combined.sct@meta.data <- meta
 
 ##### Final Clusters #####
 
+# Manual rearrangement of subclusters - this is based on automated annotation and visualization of specific gene markers expression
 # We create a dummy variable to store metadata from the Seurat object.
 meta <- BM.combined.sct@meta.data
 
-# Manual rearrangement of subclusters
 meta$final.clusters.integrated_snn <- as.character(meta$integrated_snn_res.0.4)
-
 meta$final.clusters.integrated_snn <- ifelse((meta$subcluster.integrated_snn_res.0.4 == "13_0" | meta$subcluster.integrated_snn_res.0.4 == "13_1" | meta$subcluster.integrated_snn_res.0.4 == "13_3"), "1", as.character(meta$final.clusters.integrated_snn))
-
 meta$final.clusters.integrated_snn <- ifelse((meta$subcluster.integrated_snn_res.0.4 == "11_1" | meta$subcluster.integrated_snn_res.0.4 == "11_5"), "17", as.character(meta$final.clusters.integrated_snn))
-
 meta$final.clusters.integrated_snn <- ifelse((meta$subcluster.integrated_snn_res.0.4 == "11_3"), "18", as.character(meta$final.clusters.integrated_snn))
-
 meta$final.clusters.integrated_snn <- ifelse((meta$subcluster.integrated_snn_res.0.4 == "11_6"), "19", as.character(meta$final.clusters.integrated_snn))
-
 meta$final.clusters.integrated_snn <- ifelse((meta$subcluster.integrated_snn_res.0.4 == "13_2" | meta$subcluster.integrated_snn_res.0.4 == "12_0"), "13", meta$final.clusters.integrated_snn)
-
 meta$final.clusters.integrated_snn <- ifelse((meta$subcluster.integrated_snn_res.0.4 == "11_2"), "20", as.character(meta$final.clusters.integrated_snn))
-
 meta$final.clusters.integrated_snn <- ifelse((meta$subcluster.integrated_snn_res.0.4 == "15_2" | meta$subcluster.integrated_snn_res.0.4 == "15_1"), "21", meta$final.clusters.integrated_snn)
 
 meta <- meta[,c(4,2,3,6,7,12,13,27,19,32)]
@@ -190,4 +154,4 @@ meta <- meta[,c(4,2,3,6,7,12,13,27,19,32)]
 BM.combined.sct@meta.data <- meta
 
 ## Save RDS object
-saveRDS(BM.combined.sct,"/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/scRNAseq_CRISPR_Screening_BM_Annotated_Integrated_FINAL.RDS")
+saveRDS(BM.combined.sct,"/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/scRNAseq_CRISPR_Screening_BM_Annotated_Integrated.RDS")
