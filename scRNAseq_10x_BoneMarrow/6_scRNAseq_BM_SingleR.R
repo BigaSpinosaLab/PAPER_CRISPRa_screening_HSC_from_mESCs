@@ -63,5 +63,5 @@ seu <- merge(CD45_4_5, CD45_BFP_4_5, project = "Combined_BM_CRISPR_Screening")
 
 
 ## Save RDS object
-saveRDS(seu,"/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/scRNAseq_CRISPR_Screening_BM_Annotated_Only2Samples.RDS")
+saveRDS(seu,"/home/user/Documents/Files/Projects/BM_scRNAseq/RDS/scRNAseq_CRISPR_Screening_BM_SingleR_Annotated.RDS")
 
