@@ -7,6 +7,7 @@ This repository includes scripts required for the scRNAseq datasets analysis inc
 All scripts include comments so they are self-explanatory.
 
 GEO accession numbers where raw (FASTQ) and processed (CellRanger matrices and final RDS file) are:
+
     - GSE274423 id refers to scRNA-seq Bone Marrow dataset.
     - GSE274424 id refers to scRNA-seq Embryoid Bodies dataset.
 
