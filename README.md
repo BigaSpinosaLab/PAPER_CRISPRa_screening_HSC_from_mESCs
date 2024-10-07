@@ -1,10 +1,14 @@
 # PAPER_CRISPRa_screening_HSC_from_mESCs
 Collection of scripts used to perform the analysis of Galán-Palma L. et al. 
 
-This repository includes scripts required for the scRNAseq datasets analysis included in Galán-Palme et al. 
-'In vivo genome-wide CRISPRa screen identifies novel genes that generate hematopoietic stem and progenitor cells from mouse embryonic stem cells' 
+This repository includes scripts required for the scRNAseq datasets analysis included in Galán-Palma et al. 
+'Unbiased genome-wide screen uncovers a gene combination that drives hematopoietic stem cell fate from mouse embryonic stem cells' 
 
 All scripts include comments so they are self-explanatory.
+
+GEO accession numbers where raw (FASTQ) and processed (CellRanger matrices and final RDS file) are:
+    - GSE274423 id refers to scRNA-seq Bone Marrow dataset.
+    - GSE274424 id refers to scRNA-seq Embryoid Bodies dataset.
 
 The repository is organized in the following subfolders:
 
@@ -25,7 +29,7 @@ Scripts required to reproduce the complete scRNAseq EBs dataset (3x SADEiGEN and
     - Script 7 refers to the differential abundance analysis with miloR for testing SADEiGEN vs WT condition.
     - Script 8 refers to the pseudobulk differential expression analysis for the subset of Kdr positive cells.
 
-Raw FASTQ files and CellRanger output are available through GEO. Additionally, an RDS file including a Seurat object is also available in the same accession number. This RDS file includes up to Script 6 execution.
+Raw FASTQ files and CellRanger output are available through GEO. Additionally, an RDS file including a Seurat object is also available in the same accession number. This RDS file includes up to Script 6 execution, included.
 
 NOTE: Corresponding HTML reports generated from scripts 1, 2, 4 and 5 are also available in a subfolder.
 
@@ -43,11 +47,10 @@ Scripts required to reproduce the complete scRNAseq BM dataset (1x SADEiGEN and 
 
 - Downstream analysis: scripts from 5 to 8.
 
-    - Script 5 refers to the retrieval of the reference dataset.
-    - Script 6 refers to cell type annotation with Single R and based on the Mouse Cell Atlas from Wang et al. 2023. 
-    - Script 7 refers to dimensionality reduction, data integration and clustering process.
-    - Script 8 refers to the results visualization.
+    - Script 5 refers to the retrieval of the reference dataset from Mouse Cell Atlas (Wang R. et al. 2023 NAR) to be used for automated annotation.
+    - Script 6 refers to automated cell type annotation with Single R taking as reference dataset from previous point.
+    - Script 7 refers to dimensionality reduction, data (samples) integration and clustering process.
 
-Raw FASTQ files and CellRanger output are available through GEO. Additionally, an RDS file including a Seurat object is also available in the same accession number. This RDS file includes up to Script 7 execution.
+Raw FASTQ files and CellRanger output are available through GEO. Additionally, an RDS file including a Seurat object is also available in the same accession number. This RDS file includes up to Script 7 execution, included. Additionally, this RDS file includes coordinates from UMAP embedding prior to samples integration.
 
-NOTE: Corresponding HTML reports generated from scripts 1, 2, 4 and 8 are also available in a subfolder.
+NOTE: Corresponding HTML reports generated from scripts 1, 2 and 4 are also available in a subfolder.
