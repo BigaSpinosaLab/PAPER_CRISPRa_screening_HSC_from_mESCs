@@ -52,7 +52,8 @@ Scripts required to reproduce the complete scRNAseq BM dataset (1x SADEiGEN and 
     - Script 6 refers to automated cell type annotation with Single R taking as reference dataset from previous point.
     - Script 7 refers to dimensionality reduction, data (samples) integration and clustering process.
     - Script 8 refers to the cell type annotation - manual curation - based on SingleR results + lineage gene markers.
+    - Script 9 refers to the neutrophil subpopulations annotation.
 
-Raw FASTQ files and CellRanger output are available through GEO. Additionally, an RDS file including a Seurat object is also available in the same accession number. This RDS file includes up to Script 7 execution, included. Additionally, this RDS file includes coordinates from UMAP embedding prior to samples integration.
+Raw FASTQ files and CellRanger output are available through GEO. Additionally, an RDS file including a Seurat object is also available in the same accession number. The RDS file includes up to Script 9 execution, included. Additionally, this RDS file includes coordinates from UMAP embedding prior to samples integration.
 
 NOTE: Corresponding HTML reports generated from scripts 1, 2 and 4 are also available in a subfolder.
