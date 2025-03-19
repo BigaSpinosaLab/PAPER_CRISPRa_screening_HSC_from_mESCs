@@ -1,4 +1,4 @@
-# PAPER_CRISPRa_screening_HSC_from_mESCs
+# CRISPR activation screening to uncover drivers of HSCs from_mESCs
 Collection of scripts used to perform the analysis of Galán-Palma L. et al. 
 
 This repository includes scripts required for the scRNAseq datasets analysis included in Galán-Palma et al. 
