@@ -1,5 +1,5 @@
 # CRISPR activation screening to uncover drivers of HSCs from_mESCs
-Collection of scripts used to perform the analysis of Galán-Palma L. et al. 
+Collection of scripts used to perform the analysis of Galán-Palma L. et al. Blood 2025
 
 This repository includes scripts required for the scRNAseq datasets analysis included in Galán-Palma et al. 
 'Unbiased genome-wide screen uncovers a gene combination that drives hematopoietic stem cell fate from mouse embryonic stem cells' 
